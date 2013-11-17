@@ -27,8 +27,7 @@ import android.util.Log;
  */
 public class OneTimeInitializerReceiver extends BroadcastReceiver {
 
-    private static final String TAG = OneTimeInitializerReceiver.class.getSimpleName()
-            .substring(0, 22);
+    protected static final String TAG = "OneTimeInitializer";
 
     @Override
     public void onReceive(Context context, Intent intent) {

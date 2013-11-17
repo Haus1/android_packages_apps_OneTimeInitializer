@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2012 The Android Open Source Project
+ * Copyright (C) 2013  haus.xda@gmail.com
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,8 +28,8 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.util.Log;
 
-import java.net.URISyntaxException;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A class that performs one-time initialization after installation.
@@ -39,9 +40,14 @@ import java.util.Set;
  */
 public class OneTimeInitializerService extends IntentService {
 
+    // package and class names for dialer and contacts
+    final CharSequence CONTACTS_PKG = "com.android.contacts";
+    final CharSequence DIALT_CONTACTS_CLASS = CONTACTS_PKG + ".activities.DialtactsActivity";
+    final CharSequence DIALER_PKG = "com.android.dialer";
+    final CharSequence DIALT_DIALER_CLASS = DIALER_PKG + ".DialtactsActivity";
+
     // class name is too long
-    private static final String TAG = OneTimeInitializerService.class.getSimpleName()
-            .substring(0, 22);
+    private static final String TAG = OneTimeInitializerReceiver.TAG;
 
     // Name of the shared preferences file.
     private static final String SHARED_PREFS_FILE = "oti";
@@ -51,8 +57,9 @@ public class OneTimeInitializerService extends IntentService {
 
     // This is the content uri for Launcher content provider. See
     // LauncherSettings and LauncherProvider in the Launcher app for details.
-    private static final Uri LAUNCHER_CONTENT_URI =
-            Uri.parse("content://com.android.launcher2.settings/favorites?notify=true");
+    private static final CharSequence LAUNCHER_2_TXT = "content://com.android.launcher2.settings/favorites?notify=true";
+    private static final CharSequence LAUNCHER_3_TXT = "content://com.android.launcher3.settings/favorites?notify=true";
+    private static Uri LAUNCHER_CONTENT_URI;
 
     private static final String LAUNCHER_ID_COLUMN = "_id";
     private static final String LAUNCHER_INTENT_COLUMN = "intent";
@@ -81,7 +88,7 @@ public class OneTimeInitializerService extends IntentService {
             if (Log.isLoggable(TAG, Log.INFO)) {
                 Log.i(TAG, "Updating to version 1.");
             }
-            updateDialtactsLauncher();
+            updateDialtactsLauncher(LAUNCHER_2_TXT);
 
             newVersion = 1;
         }
@@ -99,59 +106,69 @@ public class OneTimeInitializerService extends IntentService {
         ed.commit();
     }
 
-    private void updateDialtactsLauncher() {
+    private void updateDialtactsLauncher(CharSequence LAUNCHER_URI_TXT) {
         ContentResolver cr = getContentResolver();
-        Cursor c = cr.query(LAUNCHER_CONTENT_URI,
-                new String[]{LAUNCHER_ID_COLUMN, LAUNCHER_INTENT_COLUMN}, null, null, null);
-        if (c == null) {
-            return;
-        }
+        
+        LAUNCHER_CONTENT_URI = Uri.parse((String)LAUNCHER_URI_TXT);
+        String[] projections = {LAUNCHER_ID_COLUMN, LAUNCHER_INTENT_COLUMN};
+        Cursor c = cr.query(LAUNCHER_CONTENT_URI, projections, null, null, null);
 
-        try {
-            if (Log.isLoggable(TAG, Log.DEBUG)) {
-                Log.d(TAG, "Total launcher icons: " + c.getCount());
-            }
+        if (c != null) {
+            try {
+                if (Log.isLoggable(TAG, Log.DEBUG)) {
+                    Log.d(TAG, "Total launcher icons: " + c.getCount());
+                }
 
-            while (c.moveToNext()) {
-                long favoriteId = c.getLong(0);
-                final String intentUri = c.getString(1);
-                if (intentUri != null) {
+                Intent intent;
+                ComponentName componentName;
+                List<String> categories;
+                long favoriteId;
+                String intentUri;
+
+                while (c.moveToNext()) {
+                    favoriteId = c.getLong(0);
+                    intentUri = String.valueOf(getString(1));
+
+                    // Odds are this one isn't it, skip it if possible
+                    if (!intentUri.contains(DIALT_CONTACTS_CLASS) || !intentUri.contains(Intent.CATEGORY_LAUNCHER)) {
+                        continue;
+                    }
+
                     try {
-                        final Intent intent = Intent.parseUri(intentUri, 0);
-                        final ComponentName componentName = intent.getComponent();
-                        final Set<String> categories = intent.getCategories();
-                        if (Intent.ACTION_MAIN.equals(intent.getAction()) &&
-                                componentName != null &&
-                                "com.android.contacts".equals(componentName.getPackageName()) &&
-                                "com.android.contacts.activities.DialtactsActivity".equals(
-                                        componentName.getClassName()) &&
-                                categories != null &&
-                                categories.contains(Intent.CATEGORY_LAUNCHER)) {
+                        intent = new Intent(intentUri).addFlags(0);
+                        componentName = intent.getComponent();
+                        categories = new ArrayList<String>(intent.getCategories());
 
-                            final ComponentName newName = new ComponentName("com.android.dialer",
-                                    "com.android.dialer.DialtactsActivity");
+                        if (Intent.ACTION_MAIN.equals(intent.getAction())
+                                && componentName != null
+                                && CONTACTS_PKG.equals(componentName.getPackageName())
+                                && DIALT_CONTACTS_CLASS.equals(componentName.getClassName())
+                                && categories.contains(Intent.CATEGORY_LAUNCHER)) {
+
+                            final ComponentName newName = new ComponentName((String)DIALER_PKG, (String)DIALT_DIALER_CLASS);
                             intent.setComponent(newName);
-                            final ContentValues values = new ContentValues();
+
+                            final ContentValues values = new ContentValues(1);
                             values.put(LAUNCHER_INTENT_COLUMN, intent.toUri(0));
 
-                            String updateWhere = LAUNCHER_ID_COLUMN + "=" + favoriteId;
+                            final String updateWhere = LAUNCHER_ID_COLUMN + "=" + favoriteId;
                             cr.update(LAUNCHER_CONTENT_URI, values, updateWhere, null);
+
                             if (Log.isLoggable(TAG, Log.INFO)) {
                                 Log.i(TAG, "Updated " + componentName + " to " + newName);
                             }
                         }
-                    } catch (RuntimeException ex) {
+                    } catch (Exception ex) {
                         Log.e(TAG, "Problem moving Dialtacts activity", ex);
-                    } catch (URISyntaxException e) {
-                        Log.e(TAG, "Problem moving Dialtacts activity", e);
                     }
                 }
-            }
-
-        } finally {
-            if (c != null) {
+            } finally {
                 c.close();
             }
+        }
+        
+        if (LAUNCHER_URI_TXT.equals(LAUNCHER_2_TXT)) {
+	    updateDialtactsLauncher(LAUNCHER_3_TXT);
         }
     }
 }
