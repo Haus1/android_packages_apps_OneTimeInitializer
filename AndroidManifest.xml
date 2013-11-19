@@ -21,10 +21,15 @@
     <uses-permission
         android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission
+	android:name="android.permission.USE_SIP"/>
+    <uses-permission
         android:name="com.android.launcher.permission.READ_SETTINGS"/>
     <uses-permission
         android:name="com.android.launcher.permission.WRITE_SETTINGS"/>
-
+    <uses-permission
+	android:name="com.android.launcher.permission.INSTALL_SHORTCUT"/>
+    <uses-permission
+	android:name="com.android.launcher.permission.UNINSTALL_SHORTCUT"/>
     <application android:label="One Time Init">
         <receiver
             android:name=".OneTimeInitializerReceiver">
